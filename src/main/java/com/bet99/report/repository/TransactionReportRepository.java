@@ -1,20 +1,22 @@
 package com.bet99.report.repository;
 
-import com.bet99.report.dto.ReportSummary;
-import com.bet99.report.dto.TransactionRow;
-import com.bet99.report.web.ReportCriteria;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
-import jakarta.persistence.Query;
-import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.bet99.report.dto.ReportSummary;
+import com.bet99.report.dto.TransactionRow;
+import com.bet99.report.web.ReportCriteria;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.Query;
 
 /**
  * Reads the report through JPA's native-query API (so it still runs inside the
