@@ -411,31 +411,56 @@ queries keep working while the JPQL ones fail.
 mvn test
 ```
 
-Current coverage is thin — five tests:
+27 tests across three classes.
 
-- `ReportCriteriaValidationTest` — four tests over the date-range constraint:
-  a valid range passes, start after end is rejected with the error attached to
-  `endDateTime`, equal dates are allowed, and a missing date reports only
-  `@NotNull` rather than two errors for one mistake. These build a `Validator`
-  directly, so they need no Spring context and run in milliseconds.
-- `TransactionReportApplicationTests` — the standard context-load smoke test.
+**`ReportQueryBuilderTest` (22)** — asserts the generated SQL directly. The
+builder is a plain object with no framework dependencies, so these need no
+Spring context and no database; the whole class runs in under a fifth of a
+second. Grouped into:
+
+- *Sort whitelist* — every documented key is accepted, an unknown key falls back
+  to the default rather than throwing, and a key of
+  `"id; DROP TABLE account_tran; --"` produces SQL containing neither `DROP` nor
+  `--`. That last one is the injection defence, demonstrated rather than
+  asserted.
+- *Order by* — direction follows the criteria, `ID` is appended as a tie-breaker
+  on a non-unique sort so paging is stable, and no redundant tie-breaker is
+  added when already sorting by `ID`.
+- *Where clause* — the date range is always bound; unset filters add no
+  predicate at all; each supplied filter adds exactly one predicate and one bind
+  parameter; and a value containing SQL syntax ends up in the parameter map, not
+  in the statement.
+- *Like escaping* — a user-typed `%` becomes a literal `\%`, leaving the
+  trailing wildcard as the only one that matches.
+- *Summary* — one `FROM`, so the range is scanned once rather than twice; the
+  same filters as the row query; `COALESCE` so an empty range totals zero rather
+  than null; and an empty tran-type list producing `1 = 0` rather than the
+  syntax error `IN ()`.
+
+**`ReportCriteriaValidationTest` (4)** — the date-range constraint: a valid range
+passes, start after end is rejected with the error attached to `endDateTime`,
+equal dates are allowed, and a missing date reports only `@NotNull` rather than
+two errors for one mistake. Builds a `Validator` directly, so no Spring context.
+
+**`TransactionReportApplicationTests` (1)** — the standard context-load smoke
+test.
 
 **`mvn test` currently requires a running MySQL**, because the context-load test
-starts the full application and therefore needs a datasource. Either bring the
-database up first, or skip tests with `mvn package -DskipTests`.
+starts the full application and therefore needs a datasource. The other 26 tests
+have no such dependency. Either bring the database up first, or skip tests with
+`mvn package -DskipTests`.
 
 The obvious next tests, roughly in order of value:
 
-1. `ReportQueryBuilder` — assert the generated SQL directly. It has no
-   dependencies, so these are fast and need no database. Worth covering: the
-   whitelist rejecting an unknown sort key, the `LIKE` escaping, the tie-breaker,
-   and that no user value is ever concatenated into the SQL text.
-2. `TransactionReportRepository` against H2 in MySQL mode, with a fixture
+1. `TransactionReportRepository` against H2 in MySQL mode, with a fixture
    mirroring the real schema's conventions — negative wagers, loyalty points in
-   the `*_RAW_LOYALTY` columns.
-3. `ReportService` with a mocked repository — page clamping, the empty-range
-   short-circuit, and normalisation.
-4. `CsvExportService` — quoting, and the formula-injection guard.
+   the `*_RAW_LOYALTY` columns. This is the gap that matters most: the generated
+   SQL is asserted as text, but never executed by a test.
+2. `ReportService` with a mocked repository — page clamping, the empty-range
+   short-circuit, and normalisation of `page`, `size` and `sort`.
+3. `CsvExportService` — RFC 4180 quoting, and the formula-injection guard.
+4. Replacing the context-load test's live datasource with H2, so `mvn test`
+   needs no running database at all.
 
 ---
 
@@ -486,8 +511,12 @@ unprivileged user rather than root.
 
 ## Known limitations
 
-- **Test coverage is thin.** Five tests, listed above, and `mvn test` needs a
-  running database because of the context-load test.
+- **The generated SQL is asserted as text, but never executed by a test.** The
+  22 query-builder tests check what the SQL says; nothing yet runs it against a
+  real engine. A repository test on H2 in MySQL mode is the most valuable thing
+  to add next.
+- **`mvn test` needs a running database**, because the context-load test starts
+  the full application context. The other 26 tests do not.
 - **`*_RAW_LOYALTY` columns are included in the money totals.** They hold
   loyalty points as `BIGINT`, not currency, and `BALANCE_RAW_LOYALTY` is large
   enough to dominate `BALANCE_REAL`. They are included because the specification
