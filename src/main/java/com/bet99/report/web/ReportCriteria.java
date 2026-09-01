@@ -1,5 +1,8 @@
 package com.bet99.report.web;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 
 import com.bet99.report.web.validation.ValidDateRange;
@@ -77,5 +80,40 @@ public class ReportCriteria {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /**
+     * Query string carrying only the filter fields - sort, dir and page are
+     * appended by whichever link is being rendered.
+     */
+    public String toFilterQueryString() {
+        StringBuilder sb = new StringBuilder();
+        append(sb, "startDateTime", startDateTime == null ? null : startDateTime.toString());
+        append(sb, "endDateTime", endDateTime == null ? null : endDateTime.toString());
+        append(sb, "accountId", accountId == null ? null : accountId.toString());
+        append(sb, "platformTranId", platformTranId);
+        append(sb, "gameTranId", gameTranId);
+        append(sb, "gameId", gameId);
+        append(sb, "tranType", tranType);
+        append(sb, "size", Integer.toString(size));
+        return sb.toString();
+    }
+
+    private static void append(StringBuilder sb, String name, String value) {
+        if (value == null || value.isEmpty()) {
+            return;
+        }
+        if (sb.length() > 0) {
+            sb.append('&');
+        }
+        sb.append(name).append('=').append(encode(value));
+    }
+
+    private static String encode(String value) {
+        try {
+            return URLEncoder.encode(value, StandardCharsets.UTF_8.name());
+        } catch (UnsupportedEncodingException e) {
+            throw new IllegalStateException(e);
+        }
     }
 }
