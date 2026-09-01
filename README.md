@@ -113,6 +113,28 @@ To verify the data loaded:
 SELECT COUNT(*) FROM gamedb.account_tran;   -- 6977
 ```
 
+### Deploying to a standalone servlet container
+
+The artifact is a `war`, not an executable jar, because **JSP cannot be served
+from an executable jar** — the container cannot locate JSPs inside a nested
+archive. That makes the packaging a requirement rather than a preference.
+
+A useful side effect is that the same war also deploys to an external servlet
+container. `ServletInitializer` provides the bootstrap: it extends
+`SpringBootServletInitializer` so the container starts the Spring context
+instead of `main()`. Drop `target/transaction-report.war` into a container's
+`webapps/` directory and it runs there.
+
+**It must be Tomcat 10.1 or later** (or another Jakarta EE 10 container). Tomcat
+9 and below will not work: this is a `jakarta.*` application, not `javax.*`.
+Jakarta EE 9 renamed every servlet package, and the two are not
+interchangeable — deploying to Tomcat 9 fails with a `ClassNotFoundException`
+that gives no hint the real problem is the namespace.
+
+Neither documented run path needs this — `java -jar` and Docker both use the
+embedded Tomcat. It is here because `ServletInitializer` is in the source tree
+and should not be an unexplained file.
+
 ---
 
 ## Configuration
