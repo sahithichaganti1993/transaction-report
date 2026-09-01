@@ -1,19 +1,44 @@
 server:
   port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
 
 spring:
+  application:
+    name: transaction-report
+
   datasource:
-    url: jdbc:mysql://localhost:3306/gamedb?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8
-    username: gamedb
-    password: gamedb
+    # ${VAR:default} - the environment variable wins if set, otherwise the
+    # default. Lets the app be pointed at another database without editing
+    # this file.
+    #
+    # Deliberately NO serverTimezone parameter here. That option asserts what
+    # timezone the MySQL server runs in, and asserting it wrongly shifts every
+    # timestamp by the local UTC offset. With it omitted the driver and the
+    # server agree because they share a machine. Under Docker they agree
+    # because both are UTC. Do not add it back without checking
+    # @@global.time_zone on the server you are actually pointing at.
+    url: ${DB_URL:jdbc:mysql://localhost:3306/gamedb?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8}
+    username: ${DB_USERNAME:gamedb}
+    password: ${DB_PASSWORD:gamedb}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      pool-name: report-pool
 
   jpa:
-    # The SQL scripts own the schema - Hibernate must never touch it.
+    # The SQL scripts in db/ own the schema - Hibernate must never touch it.
     hibernate:
       ddl-auto: none
       naming:
-        # Take @Column names literally, so the quoted `DATETIME` survives.
+        # The supplied table uses UPPER_SNAKE column names and one column is
+        # literally called `DATETIME`. Spring Boot's default strategy rewrites
+        # @Column names to lower case, which breaks the quoted identifier.
+        # Take @Column at its word.
         physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    # Do not hold a database session open for view rendering.
     open-in-view: false
     show-sql: false
 
@@ -24,14 +49,40 @@ spring:
 
 report:
   table: account_tran
+
+  # Leave amount-columns / balance-columns empty to auto-discover every
+  # AMOUNT_* / BALANCE_* column from INFORMATION_SCHEMA at startup. On the
+  # supplied schema that resolves to:
+  #   amount  = AMOUNT_REAL + AMOUNT_RELEASED_BONUS + AMOUNT_PLAYABLE_BONUS
+  #           + AMOUNT_UNDERFLOW + AMOUNT_RAW_LOYALTY + AMOUNT_FREE_BET
+  #   balance = BALANCE_REAL + BALANCE_RELEASED_BONUS + BALANCE_PLAYABLE_BONUS
+  #           + BALANCE_RAW_LOYALTY
+  # An explicit list here overrides discovery.
   amount-columns: []
   balance-columns: []
   amount-column-prefix: AMOUNT_
   balance-column-prefix: BALANCE_
+
+  # *_RAW_LOYALTY hold loyalty POINTS (BIGINT), not currency, and
+  # BALANCE_RAW_LOYALTY dwarfs BALANCE_REAL in the supplied data. The
+  # specification says "sum of all the AMOUNT_* / BALANCE_* columns", so they
+  # are included by default. Uncomment to drop them:
+  # exclude-columns: [AMOUNT_RAW_LOYALTY, BALANCE_RAW_LOYALTY]
   exclude-columns: []
+
+  # Drives the summary section. GAME_BET amounts are stored negative in the
+  # supplied data, so ReportSummary reports the bet total as a magnitude and
+  # net = win - bet reads correctly.
   bet-tran-types: [GAME_BET]
   win-tran-types: [GAME_WIN]
+
   page-sizes: [25, 50, 100]
   default-range-days: 7
   csv-max-rows: 200000
   csv-chunk-size: 5000
+
+logging:
+  level:
+    com.bet99.report: INFO
+    # Flip to DEBUG to see the generated report SQL:
+    # org.hibernate.SQL: DEBUG
