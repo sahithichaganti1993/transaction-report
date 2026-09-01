@@ -131,10 +131,29 @@ The `docker` profile (`application-docker.yml`) overrides the host to `mysql`,
 which is the Compose service name — inside a container `localhost` refers to the
 container itself, not to the database.
 
-The `report:` block controls the report's behaviour: which table to read, which
-columns count as money, which transaction types count as bets and wins, the
-offered page sizes, and the CSV export limits. Sensible defaults are built in,
-so the block can be removed entirely and the app still runs.
+The `report:` block controls the report's behaviour. Every setting has a default
+in `ReportProperties`, so the block can be removed entirely and the app still
+runs.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `DB_URL` *(env)* | `jdbc:mysql://localhost:3306/gamedb?…` | JDBC URL |
+| `DB_USERNAME` / `DB_PASSWORD` *(env)* | `gamedb` / `gamedb` | Credentials |
+| `report.table` | `account_tran` | Table the report reads |
+| `report.amount-columns` | *(empty)* | Pin the amount columns; empty means auto-discover |
+| `report.balance-columns` | *(empty)* | Pin the balance columns; empty means auto-discover |
+| `report.amount-column-prefix` | `AMOUNT_` | Prefix used for discovery |
+| `report.balance-column-prefix` | `BALANCE_` | Prefix used for discovery |
+| `report.exclude-columns` | *(empty)* | Skip these even when they match a prefix |
+| `report.bet-tran-types` | `[GAME_BET]` | `TRAN_TYPE` values counted as wagers |
+| `report.win-tran-types` | `[GAME_WIN]` | `TRAN_TYPE` values counted as payouts |
+| `report.page-sizes` | `[25, 50, 100]` | Page sizes offered; the first is the default |
+| `report.default-range-days` | `7` | Fallback range when the data window is unavailable |
+| `report.csv-max-rows` | `200000` | Hard cap on a CSV export |
+| `report.csv-chunk-size` | `5000` | Rows fetched per round trip while streaming CSV |
+
+To see the generated SQL, uncomment `org.hibernate.SQL: DEBUG` in the `logging`
+section of `application.yml`.
 
 ### A note on timezones
 
@@ -347,6 +366,32 @@ message.
 `src/main/resources/static/css/app.css`. No CSS framework, no build step, no
 JavaScript.
 
+### Adding a new column to the report
+
+The most likely first change, so here is the whole path:
+
+1. Add the column to the `SELECT` list in `ReportQueryBuilder.rows()`, and give
+   it a position constant (`C_…`) in `TransactionReportRepository` — the
+   constants exist so the `Object[]` indices stay readable when the list changes.
+2. Add the field, constructor argument and getter to `TransactionRow`.
+3. Map the raw value in `TransactionReportRepository.findRows()`, using the
+   matching `toLong` / `toStr` / `toBigDecimal` converter.
+4. Add an entry to the `sortableColumns` map in `ReportQueryBuilder` if the
+   column should be sortable — anything not in that map cannot be sorted by,
+   which is deliberate.
+5. Add a `<ui:sortHeader>` and a `<td>` in `report.jsp`.
+6. Add it to `CsvExportService.HEADERS` and to the row written in
+   `CsvExportService.write()`, keeping the two in the same order.
+
+If the new column is filterable, also add the field to `ReportCriteria` (with
+`trimToNull` in its setter), a predicate in `ReportQueryBuilder.whereClause()`,
+an input in the JSP, and the field to `toFilterQueryString()` so the filter
+survives sorting and paging.
+
+Adding a new `AMOUNT_*` or `BALANCE_*` column to the table needs **no code change
+at all** — the registry discovers it at startup and it joins the totals
+automatically.
+
 ---
 
 ## Database
@@ -363,6 +408,24 @@ The table is `account_tran`, created by the script supplied with the assignment.
 
 MySQL 8 rejects that with a syntax error. `db/01_account_tran.sql` is otherwise
 the supplied file unchanged.
+
+### `TRAN_TYPE` values in the data
+
+| Type | Rows | | Type | Rows |
+|---|---:|---|---|---:|
+| `GAME_BET` | 4,965 | | `PLTFRM_BON` | 38 |
+| `GAME_WIN` | 1,524 | | `CASHOUT` | 34 |
+| `CRE_BONUS` | 98 | | `DEPOSIT` | 32 |
+| `ROLLBACK` | 92 | | `PLTFRM_PRO` | 29 |
+| `CANC_BONUS` | 82 | | `EXP_BONUS` | 22 |
+| `TIPS` | 39 | | `MAN_ADJUST` | 21 |
+| | | | `BONUS_REL` | 1 |
+
+Thirteen types, but only two feed the summary. `report.bet-tran-types` and
+`report.win-tran-types` decide which — they default to `[GAME_BET]` and
+`[GAME_WIN]` and are **lists**, so classifying a new type (a sportsbook wager,
+say) is a configuration change rather than a code change. Every other type is
+counted in the total and shown in the table, but not treated as wagering.
 
 ### Indexes
 
