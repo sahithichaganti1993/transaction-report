@@ -1,0 +1,45 @@
+services:
+  mysql:
+    # Built from db/Dockerfile so the SQL scripts are baked into the image
+    # rather than bind-mounted - see the comment in db/Dockerfile for why.
+    build: ./db
+    container_name: gtr-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: gamedb
+      MYSQL_USER: gamedb
+      MYSQL_PASSWORD: gamedb
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ugamedb", "-pgamedb"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  app:
+    build: .
+    container_name: gtr-app
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      JAVA_OPTS: "-XX:MaxRAMPercentage=75 -Duser.timezone=UTC"
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    healthcheck:
+      # No curl in the JRE image; bash's /dev/tcp is enough to prove the port
+      # is serving. Without this a boot failure just looks like a quiet restart.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 40s
+
+volumes:
+  mysql-data:
