@@ -19,7 +19,7 @@ Spring MVC + JSP on the front, JPA/Hibernate over native SQL on the back.
 - [Database](#database)
 - [Tests](#tests)
 - [Project layout](#project-layout)
-- [Known limitations](#known-limitations)
+- [Notes, trade-offs and what I would do next](#notes-trade-offs-and-what-i-would-do-next)
 
 ---
 
@@ -619,21 +619,86 @@ unprivileged user rather than root.
 
 ---
 
-## Known limitations
+## Notes, trade-offs and what I would do next
+
+### Deliberate choices
+
+**No JavaScript.** For a filterable, sortable, paginated table, server-rendered
+links do the whole job. The cost is a page load per interaction; the benefit is
+no build pipeline, no framework to keep upgraded, and shareable, bookmarkable
+URLs for free.
+
+**Native SQL for the grid, JPA for everything else.** JPQL cannot express "the
+sum of a set of columns not known at compile time", and the alternative — pulling
+rows into the JVM to sum and sort them — does not survive contact with real
+volumes. The entity is still used for the two queries it suits.
+
+**Follow the specification literally on `*_RAW_LOYALTY`, but make disagreeing
+cheap.** They are loyalty points rather than currency and they dominate the
+balance totals, but the spec says the sum of *all* `AMOUNT_*` / `BALANCE_*`
+columns. Excluding them is one line of configuration, not a code change.
+
+**Prefix rather than substring matching** on the ID filters. `LIKE '500010%'`
+can use an index; `LIKE '%500010%'` cannot and would scan the whole date range.
+
+**H2 rather than Testcontainers** for the repository tests, so `mvn test` works
+on a laptop with no Docker daemon. Testcontainers against real MySQL 8 would be
+the better call once there is CI to run it in.
+
+**No timezone assertion in the datasource configuration.** Declaring
+`serverTimezone=UTC` when the server is not actually UTC shifts every timestamp
+by the local offset. Omitting it lets the application and the database agree
+because they share an environment — see [A note on timezones](#a-note-on-timezones).
+
+### Known limitations
 
 - **`mvn test` needs a running database**, because the context-load test starts
   the full application context. The other 65 tests do not.
 - **The web layer is untested.** The controller, the JSP and the tag file are
   covered only by manual checking; there is no `@WebMvcTest`.
+- **Rolled-back transactions are shown like any other.** 105 rows carry
+  `ROLLED_BACK = 1`; the assignment asks for *all* records in the range, so they
+  are included unflagged. Excluding or marking them is a predicate in
+  `ReportQueryBuilder` and a column in the grid.
+- **Timestamps are displayed exactly as stored**, with no timezone conversion.
+  That is correct while the application and database share a zone. If accounts
+  ever span regions, the display zone needs to become a user preference rather
+  than an environmental accident.
+- **The `TRAN_TYPE` suggestion list runs `SELECT DISTINCT` on every page load.**
+  Fine for 13 values; worth caching if the cardinality grows.
+- **The JPA entity is mapped to `account_tran` literally**, so overriding
+  `report.table` changes the report queries but not the entity. The suggestion
+  list and the prefilled date range then degrade gracefully rather than failing.
+- **The entity is a partial mapping.** Platform plumbing columns (`payment_id`,
+  `ROLLBACK_TRAN_ID`, `TRANSACTION_ON_HOLD_ID`, `GAME_SESSION_ID`,
+  `EXTERNAL_GAME_SESSION_ID`) are deliberately unmapped. Safe because Hibernate
+  never generates DDL here.
 - **`*_RAW_LOYALTY` columns are included in the money totals.** They hold
   loyalty points as `BIGINT`, not currency, and `BALANCE_RAW_LOYALTY` is large
   enough to dominate `BALANCE_REAL`. They are included because the specification
   says the sum of *all* `AMOUNT_*` / `BALANCE_*` columns; excluding them is one
   line — `report.exclude-columns: [AMOUNT_RAW_LOYALTY, BALANCE_RAW_LOYALTY]`.
-- **No authentication.** The report is open to anyone who can reach the port.
+- **No authentication or authorisation.** The report is open to anyone who can
+  reach the port.
 - **CSV export is capped** at `report.csv-max-rows` (200,000). Rows are streamed
   in chunks rather than materialised, but the cap is a hard stop.
 - **The app healthcheck only proves the port is accepting connections**, not that
   the application is well. Spring Boot Actuator's `/actuator/health` would report
   on the datasource too.
 - **Sorting by `amount` or `balance` cannot use an index**, as described above.
+
+### Next steps
+
+1. **Testcontainers integration tests against real MySQL 8**, in CI. H2 in MySQL
+   mode is close but not identical, and the report is native SQL — the engine it
+   is tested on should be the engine it runs on.
+2. **A `@WebMvcTest` over the controller**, covering that validation errors
+   render on the form rather than as a 400, and that the defaults appear on a
+   first visit but not after a submit.
+3. **A generated stored column for `AMOUNT_TOTAL`, with an index**, if sorting by
+   amount over large ranges ever becomes a bottleneck. It trades write
+   throughput and disk for an ordered read.
+4. **Caching the summary query**, keyed on the criteria. It is the more expensive
+   of the two queries and is currently re-run on every page change, even though
+   the totals do not vary between pages of the same result set.
+5. **Put it behind SSO** before it goes anywhere near production data.
