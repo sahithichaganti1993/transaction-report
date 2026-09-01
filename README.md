@@ -411,7 +411,27 @@ queries keep working while the JPQL ones fail.
 mvn test
 ```
 
-27 tests across three classes.
+66 tests across six classes.
+
+**`TransactionReportRepositoryTest` (15)** — runs the generated SQL against H2 in
+MySQL mode, so the statement is executed rather than only inspected. The fixture
+mirrors the real data's conventions: negative wagers, loyalty points as
+`BIGINT`, and one row with a null `AMOUNT_REAL` so the `COALESCE` is genuinely
+exercised. Covers date-range filtering, each column filter, prefix matching, that
+a user-typed `%` matches literally and returns nothing, paging without overlap,
+descending sort, and the bet/win/net totals.
+
+**`ReportServiceTest` (13)** — the service with a mocked repository. Page and
+size clamping, the empty-range short-circuit (verified by asserting the row query
+is never issued), the offset derived from the clamped page rather than the
+requested one, the cached data window, and the tran-type lookup degrading to an
+empty list rather than failing the page.
+
+**`CsvExportServiceTest` (11)** — RFC 4180 quoting, chunked fetching, the row
+cap, and the spreadsheet formula-injection guard together with its exception:
+text beginning `=`, `+`, `-` or `@` is prefixed with an apostrophe, but a numeric
+value never is, or a negative amount would stop being a number in the
+spreadsheet.
 
 **`ReportQueryBuilderTest` (22)** — asserts the generated SQL directly. The
 builder is a plain object with no framework dependencies, so these need no
@@ -446,21 +466,26 @@ two errors for one mistake. Builds a `Validator` directly, so no Spring context.
 test.
 
 **`mvn test` currently requires a running MySQL**, because the context-load test
-starts the full application and therefore needs a datasource. The other 26 tests
-have no such dependency. Either bring the database up first, or skip tests with
-`mvn package -DskipTests`.
+starts the full application and therefore needs a datasource. The other 65 tests
+have no such dependency — the repository tests use H2 in memory. Either bring the
+database up first, or skip tests with `mvn package -DskipTests`.
+
+A note on the test profile: `application-test.yml` deliberately sets no
+`hibernate.jdbc.time_zone`. The H2 fixture rows are inserted by a plain SQL
+script that does no timezone conversion, so reading them back under a UTC
+`jdbc.time_zone` on a JVM in another zone shifts every value by the local offset
+and the exact-timestamp assertions fail everywhere except on a UTC machine.
 
 The obvious next tests, roughly in order of value:
 
-1. `TransactionReportRepository` against H2 in MySQL mode, with a fixture
-   mirroring the real schema's conventions — negative wagers, loyalty points in
-   the `*_RAW_LOYALTY` columns. This is the gap that matters most: the generated
-   SQL is asserted as text, but never executed by a test.
-2. `ReportService` with a mocked repository — page clamping, the empty-range
-   short-circuit, and normalisation of `page`, `size` and `sort`.
-3. `CsvExportService` — RFC 4180 quoting, and the formula-injection guard.
-4. Replacing the context-load test's live datasource with H2, so `mvn test`
+1. `ReportController` with `@WebMvcTest` — that validation errors render on the
+   form rather than as a 400, and that the `@ModelAttribute` defaults appear on a
+   first visit but not after a submit.
+2. Replacing the context-load test's live datasource with H2, so `mvn test`
    needs no running database at all.
+3. A pagination test over a larger fixture, asserting that every row appears
+   exactly once across all pages when sorting by a non-unique column — the
+   regression test for the `ORDER BY` tie-breaker.
 
 ---
 
@@ -511,12 +536,10 @@ unprivileged user rather than root.
 
 ## Known limitations
 
-- **The generated SQL is asserted as text, but never executed by a test.** The
-  22 query-builder tests check what the SQL says; nothing yet runs it against a
-  real engine. A repository test on H2 in MySQL mode is the most valuable thing
-  to add next.
 - **`mvn test` needs a running database**, because the context-load test starts
-  the full application context. The other 26 tests do not.
+  the full application context. The other 65 tests do not.
+- **The web layer is untested.** The controller, the JSP and the tag file are
+  covered only by manual checking; there is no `@WebMvcTest`.
 - **`*_RAW_LOYALTY` columns are included in the money totals.** They hold
   loyalty points as `BIGINT`, not currency, and `BALANCE_RAW_LOYALTY` is large
   enough to dominate `BALANCE_REAL`. They are included because the specification

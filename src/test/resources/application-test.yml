@@ -1,0 +1,36 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:report;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:h2/schema.sql
+      data-locations: classpath:h2/data.sql
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    open-in-view: false
+
+# NOTE: no hibernate.jdbc.time_zone here, deliberately.
+#
+# The fixture rows are inserted by a plain SQL script, which does no timezone
+# conversion. Reading them back through Hibernate with a UTC jdbc.time_zone on a
+# JVM whose default zone is not UTC shifts every value by the local offset, and
+# exact-timestamp assertions then fail on every machine except a UTC one.
+# Leaving it unset means writer and reader use the same zone and agree.
+
+report:
+  table: account_tran
+  # Pinned explicitly so the tests do not depend on INFORMATION_SCHEMA discovery.
+  amount-columns: [AMOUNT_REAL, AMOUNT_RELEASED_BONUS, AMOUNT_PLAYABLE_BONUS, AMOUNT_UNDERFLOW, AMOUNT_RAW_LOYALTY, AMOUNT_FREE_BET]
+  balance-columns: [BALANCE_REAL, BALANCE_RELEASED_BONUS, BALANCE_PLAYABLE_BONUS, BALANCE_RAW_LOYALTY]
+  bet-tran-types: [GAME_BET]
+  win-tran-types: [GAME_WIN]
+  page-sizes: [25, 50, 100]
