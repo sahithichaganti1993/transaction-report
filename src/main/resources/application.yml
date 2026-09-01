@@ -21,3 +21,17 @@ spring:
     view:
       prefix: /WEB-INF/jsp/
       suffix: .jsp
+
+report:
+  table: account_tran
+  amount-columns: []
+  balance-columns: []
+  amount-column-prefix: AMOUNT_
+  balance-column-prefix: BALANCE_
+  exclude-columns: []
+  bet-tran-types: [GAME_BET]
+  win-tran-types: [GAME_WIN]
+  page-sizes: [25, 50, 100]
+  default-range-days: 7
+  csv-max-rows: 200000
+  csv-chunk-size: 5000
